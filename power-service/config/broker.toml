@@ -1,0 +1,108 @@
+socket_path = "/run/power-service/broker.sock"
+api_uid = <POWER_SERVICE_API_UID>
+gpu_index = 0
+query_timeout_seconds = 5
+operation_timeout_seconds = 5
+
+[automatic_suspend]
+enabled = true
+interactive_sessions_enabled = false
+interactive_activity_timeout_seconds = 60
+max_lease_ttl_seconds = 3600
+stable_idle_seconds = 3600
+grace_seconds = 60
+evaluation_interval_seconds = 10
+max_status_principals = 20
+local_activity_probes = [
+  { kind = "process_name", name = "<PROCESS_NAME>" },
+  { kind = "tcp_listener", port = <PORT> },
+]
+
+[[profiles]]
+name = "quiet"
+[profiles.cpu]
+policy_ids = [<POLICY_IDS>]
+governor = "<GOVERNOR>"
+min_khz = <MIN_KHZ>
+max_khz = <MAX_KHZ>
+epp = "<EPP>"
+[profiles.gpu]
+power_limit_w = "<POWER_LIMIT_W>"
+
+[[profiles]]
+name = "performance"
+[profiles.cpu]
+policy_ids = [<POLICY_IDS>]
+governor = "<GOVERNOR>"
+min_khz = <MIN_KHZ>
+max_khz = <MAX_KHZ>
+epp = "<EPP>"
+[profiles.gpu]
+power_limit_w = "<POWER_LIMIT_W>"
+
+# Examples
+# 
+# [[profiles]]
+# name = "max"
+# 
+# [profiles.cpu]
+# policy_ids = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+# governor = "performance"
+# min_khz = 3401000
+# max_khz = 3401000
+# epp = "performance"
+# 
+# [profiles.gpu]
+# power_limit_w = "350"
+# 
+# [[profiles]]
+# name = "eps"
+# 
+# [profiles.cpu]
+# policy_ids = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+# governor = "powersave"
+# min_khz = 575976
+# max_khz = 575976
+# epp = "power"
+# 
+# [profiles.gpu]
+# power_limit_w = "100"
+# 
+# [[profiles]]
+# name = "ps"
+# 
+# [profiles.cpu]
+# policy_ids = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+# governor = "powersave"
+# min_khz = 575976
+# max_khz = 1755355
+# epp = "power"
+# 
+# [profiles.gpu]
+# power_limit_w = "175"
+# 
+# [[profiles]]
+# name = "balanced"
+# 
+# [profiles.cpu]
+# policy_ids = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+# governor = "powersave"
+# min_khz = 1755355
+# max_khz = 3401000
+# epp = "balance_performance"
+# 
+# [profiles.gpu]
+# power_limit_w = "350"
+# 
+# [[profiles]]
+# name = "balanced-quiet"
+# 
+# [profiles.cpu]
+# policy_ids = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+# governor = "powersave"
+# min_khz = 1755355
+# max_khz = 3401000
+# epp = "balance_performance"
+# 
+# [profiles.gpu]
+# power_limit_w = "250"

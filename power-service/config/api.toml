@@ -1,0 +1,28 @@
+listen_host = "<PRIVATE_LISTENER_ADDRESS>"
+listen_port = 9443
+broker_socket = "/run/power-service/broker.sock"
+tls_cert = "/etc/power-service/tls/server.crt"
+tls_key = "/etc/power-service/tls/server.key"
+request_timeout_seconds = 5
+
+[[credentials]]
+id = "<CLIENT_ID>"
+salt_hex = "<HEX_SALT>"
+scrypt_hash_hex = "<HEX_DKLEN_32_HASH>"
+permissions = ["status", "profile", "suspend", "lease"]
+
+# Example
+#
+# Basic status only permission-set
+# [[credentials]]
+# id = "power-service-status"
+# salt_hex = "<SALT>"
+# scrypt_hash_hex = "<CRYPY_HASH>"
+# permissions = ["status"]
+# 
+# Admin-level full control permission-set
+# [[credentials]]
+# id = "power-service-control"
+# salt_hex = "<SALT>"
+# scrypt_hash_hex = "<CRYPY_HASH>"
+# permissions = ["status", "profile", "suspend", "lease"]

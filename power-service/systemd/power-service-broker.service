@@ -1,0 +1,26 @@
+[Unit]
+Description=Power service bounded host-control broker
+Before=power-service-api.service
+[Service]
+User=power-service-broker
+Group=power-service-broker
+SupplementaryGroups=power-service-api
+RuntimeDirectory=power-service
+RuntimeDirectoryMode=0755
+ExecStart=/usr/local/bin/power-service-broker --config /etc/power-service/broker.toml
+ExecReload=/bin/kill -HUP $MAINPID
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/sys/devices/system/cpu/cpufreq
+# CPUFreq attributes are root-owned; this capability is needed by the
+# dedicated broker identity to write only within the bounded writable path.
+# RuntimeDirectory is owned by this service identity.  Do not remount it via
+# ReadWritePaths: doing so can mask the systemd-created directory in the
+# service mount namespace and deny the Unix-socket bind before broker startup.
+ReadOnlyPaths=/usr/bin/cpupower /usr/bin/nvidia-smi /usr/bin/busctl
+AmbientCapabilities=CAP_SYS_ADMIN CAP_DAC_OVERRIDE
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE
+[Install]
+WantedBy=multi-user.target

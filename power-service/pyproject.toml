@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "power-service"
+version = "0.1.0"
+description = "Linux host-side power-management service for power-control"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["aiohttp>=3.10,<4", "dbus-next>=0.2.3,<0.3"]
+license = { text = "MIT" }
+
+[project.optional-dependencies]
+test = ["trustme>=1.1,<2"]
+
+[project.scripts]
+power-service-api = "power_service.api_main:main"
+power-service-broker = "power_service.broker_main:main"
+
+[tool.setuptools]
+license-files = ["LICENSE"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
