@@ -425,6 +425,36 @@ asyncio.run(main())
 
 Use `async with` so the client-owned transport is closed correctly.
 
+### Shared power-management composition
+
+Use `compose_power_management` when one consumer needs wake/readiness together with profile and lease operations. It owns one shared client/transport for those operations and closes its readiness-probe and client resources when the context exits.
+
+```python
+from ipaddress import IPv4Address
+
+from power_client import (
+    ProfileName,
+    ServiceWaitPolicy,
+    WakeRequest,
+    WakeTarget,
+    compose_power_management,
+)
+
+management = compose_power_management(connection, credential)
+
+async with management:
+    await management.wake(
+        WakeRequest(
+            WakeTarget("aa:bb:cc:dd:ee:ff", IPv4Address("192.0.2.255"), 9),
+            ServiceWaitPolicy(120.0, 2.0),
+        )
+    )
+    await management.apply_profile(ProfileName("balanced"))
+    lease = await management.acquire_lease(1800)
+```
+
+The composition does not release or renew leases automatically.
+
 An additional CA bundle can be supplied when required:
 
 ```python

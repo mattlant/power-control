@@ -1,5 +1,5 @@
 from .client import PowerServiceClient
-from .composition import compose_client, compose_wake_orchestrator
+from .composition import PowerManagement, compose_client, compose_power_management, compose_wake_orchestrator
 from .config import (
     CredentialFileReference,
     HttpReadinessTarget,
@@ -16,7 +16,9 @@ from .orchestration import PowerOrchestrator
 
 __all__ = [
     "PowerServiceClient",
+    "PowerManagement",
     "compose_client",
+    "compose_power_management",
     "compose_wake_orchestrator",
     "PowerOrchestrator",
     "CredentialFileReference",

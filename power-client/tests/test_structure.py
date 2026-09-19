@@ -38,3 +38,12 @@ class StructureTests(unittest.TestCase):
         self.assertNotIn("lease", orchestration.lower())
         self.assertNotIn("suspend", orchestration.lower())
         self.assertIn("probe_results", (source / "models.py").read_text(encoding="utf-8"))
+
+    def test_shared_power_management_composition_is_public(self):
+        package = (Path(__file__).parents[1] / "src" / "power_client" / "__init__.py").read_text(encoding="utf-8")
+        composition = (Path(__file__).parents[1] / "src" / "power_client" / "composition.py").read_text(encoding="utf-8")
+        self.assertIn('"PowerManagement"', package)
+        self.assertIn('"compose_power_management"', package)
+        self.assertIn("class PowerManagement(Protocol):", composition)
+        self.assertIn("class _ComposedPowerManagement:", composition)
+        self.assertIn("def compose_power_management", composition)
