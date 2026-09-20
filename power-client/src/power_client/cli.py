@@ -431,7 +431,7 @@ def _render_lifecycle(status: ServiceStatus, stdout: TextIO, *, now: datetime, l
             latest_expiry = max(lease.expires_at for lease in leases.leases)
             if latest_expiry >= lifecycle.next_transition_at:
                 remaining = (latest_expiry - now).total_seconds()
-                stdout.write(f"Grace:      starts after latest lease expiry in {_format_duration(remaining)}\n")
+                stdout.write(f"Suspend in: grace starts after last lease expires in {_format_duration(remaining)}\n")
             else:
                 remaining = (lifecycle.next_transition_at - now).total_seconds()
                 stdout.write(f"Suspend in: {_format_duration(remaining)}\n")

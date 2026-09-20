@@ -399,7 +399,7 @@ class CliTests(unittest.TestCase):
         rendered = output.getvalue()
         self.assertIn("Suspend:    blocked by lease", rendered)
         self.assertIn("Leases:     123e4567-e89b-12d3-a456-426614174000 (expires in 2h)", rendered)
-        self.assertIn("Grace:      starts after latest lease expiry in 2h", rendered)
+        self.assertIn("Suspend in: grace starts after last lease expires in 2h", rendered)
 
     def test_lease_blocked_status_shows_grace_after_expiry_when_stable_idle_elapsed(self):
         payload = status_payload()
@@ -408,7 +408,7 @@ class CliTests(unittest.TestCase):
         output = io.StringIO()
         render_text(build_parser().parse_args(["status"]), StatusLeaseDetails(parse_service_status(payload), LeaseCollection((lease,), "r")), output,
                     now=datetime(2026, 1, 1, tzinfo=timezone.utc))
-        self.assertIn("Grace:      starts after latest lease expiry in 2h", output.getvalue())
+        self.assertIn("Suspend in: grace starts after last lease expires in 2h", output.getvalue())
 
     def test_lease_blocked_status_lists_all_active_leases_and_uses_latest_expiry(self):
         payload = status_payload()
@@ -422,7 +422,7 @@ class CliTests(unittest.TestCase):
         self.assertIn(active.lease_id.value, rendered)
         self.assertIn(latest.lease_id.value, rendered)
         self.assertIn("expires in 2h", rendered)
-        self.assertIn("Grace:      starts after latest lease expiry in 2h", rendered)
+        self.assertIn("Suspend in: grace starts after last lease expires in 2h", rendered)
 
     def test_lease_blocked_status_keeps_stable_idle_timing_when_leases_expire_first(self):
         payload = status_payload()
