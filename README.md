@@ -378,8 +378,11 @@ powerctl lease list
 Acquire a five-minute lease:
 
 ```bash
-powerctl lease acquire 300
+powerctl lease acquire 5m
 ```
+
+Lease durations may be specified as seconds or with `h`, `m`, and `s` suffixes;
+ordered combinations such as `3h30m` are supported.
 
 Suspend the host:
 

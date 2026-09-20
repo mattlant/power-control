@@ -1392,10 +1392,27 @@ Acquire:
 powerctl lease acquire 300
 ```
 
+The duration is in seconds when no suffix is supplied. The CLI also supports
+`h` for hours, `m` for minutes, and `s` for seconds. Combined durations must
+use units in largest-to-smallest order:
+
+```bash
+powerctl lease acquire 8h
+powerctl lease acquire 30m
+powerctl lease acquire 3h30m
+powerctl lease acquire 1h15m30s
+```
+
 Renew:
 
 ```bash
 powerctl lease renew <LEASE_ID> 300
+```
+
+Renewal accepts the same duration forms, for example:
+
+```bash
+powerctl lease renew <LEASE_ID> 45m
 ```
 
 Release:

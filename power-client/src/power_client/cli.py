@@ -11,6 +11,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import sys
 import tomllib
 from typing import TextIO
@@ -51,6 +52,24 @@ class CliConfiguration:
 
 
 _AD_HOC_READINESS_POLICY = ReadinessWaitPolicy(120.0, 5.0, 2.0)
+_DURATION_EXPRESSION = re.compile(r"(?:(?P<hours>\d+)h)?(?:(?P<minutes>\d+)m)?(?:(?P<seconds>\d+)s)?")
+
+
+def parse_duration(value: str) -> int:
+    if value.isdecimal():
+        seconds = int(value)
+    else:
+        match = _DURATION_EXPRESSION.fullmatch(value)
+        if match is None or not any(match.groupdict().values()):
+            raise argparse.ArgumentTypeError("must be a positive duration in seconds or h/m/s units")
+        seconds = (
+            int(match.group("hours") or 0) * 3600
+            + int(match.group("minutes") or 0) * 60
+            + int(match.group("seconds") or 0)
+        )
+    if seconds < 1:
+        raise argparse.ArgumentTypeError("must be a positive duration")
+    return seconds
 
 
 def resolve_config_path(explicit_path: str | None, environment: Mapping[str, str]) -> Path:
@@ -209,11 +228,11 @@ def build_parser() -> argparse.ArgumentParser:
     lease = subparsers.add_parser("lease")
     lease_commands = lease.add_subparsers(dest="lease_command", required=True)
     acquire = lease_commands.add_parser("acquire")
-    acquire.add_argument("ttl_seconds", type=int)
+    acquire.add_argument("ttl_seconds", type=parse_duration)
     lease_commands.add_parser("list")
     renew = lease_commands.add_parser("renew")
     renew.add_argument("lease_id")
-    renew.add_argument("ttl_seconds", type=int)
+    renew.add_argument("ttl_seconds", type=parse_duration)
     release = lease_commands.add_parser("release")
     release.add_argument("lease_id")
     return parser

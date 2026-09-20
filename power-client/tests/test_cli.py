@@ -38,6 +38,7 @@ from tests.helpers import status_payload
 from power_client.cli import (
     build_parser,
     load_cli_configuration,
+    parse_duration,
     render_success,
     render_text,
     resolve_config_path,
@@ -309,6 +310,38 @@ class CliTests(unittest.TestCase):
         stderr = io.StringIO()
         self.assertEqual(_write_error(ServiceReadinessTimeout("wait_for_service", 30, "connection"), stderr), 4)
         self.assertNotIn("192.0.2.255", stderr.getvalue())
+
+    def test_parse_duration_accepts_seconds_and_ordered_units(self):
+        cases = {
+            "3600": 3600,
+            "8h": 8 * 3600,
+            "30m": 30 * 60,
+            "90s": 90,
+            "3h30m": 3 * 3600 + 30 * 60,
+            "1h15m30s": 1 * 3600 + 15 * 60 + 30,
+            "2m30s": 2 * 60 + 30,
+        }
+        for value, expected in cases.items():
+            with self.subTest(value=value):
+                self.assertEqual(parse_duration(value), expected)
+
+    def test_parse_duration_rejects_invalid_expressions(self):
+        for value in ("8x", "h", "3hfoo", "1m2h", "3.5h", "-1h", "0h", "0"):
+            with self.subTest(value=value):
+                with self.assertRaises(SystemExit):
+                    build_parser().parse_args(["lease", "acquire", value])
+
+    def test_lease_duration_parser_is_used_by_acquire_and_renew(self):
+        cases = [
+            (["lease", "acquire", "3h30m"], "acquire_lease", (12600,)),
+            (["lease", "renew", "123e4567-e89b-12d3-a456-426614174000", "45m"], "renew_lease", (LeaseId("123e4567-e89b-12d3-a456-426614174000"), 2700)),
+        ]
+        for argv, operation, expected_arguments in cases:
+            with self.subTest(argv=argv):
+                client = RecordingClient()
+                parsed = build_parser().parse_args(argv)
+                asyncio.run(run_command(parsed, self.configuration, client_factory=lambda *_: client))
+                self.assertEqual(client.calls[0], (operation, expected_arguments))
 
     def test_all_commands_delegate_once_with_typed_arguments(self):
         cases = [

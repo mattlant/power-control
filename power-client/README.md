@@ -71,8 +71,8 @@ powerctl profile apply <name>
 powerctl suspend
 
 powerctl lease list
-powerctl lease acquire <ttl-seconds>
-powerctl lease renew <lease-id> <ttl-seconds>
+powerctl lease acquire <duration>
+powerctl lease renew <lease-id> <duration>
 powerctl lease release <lease-id>
 
 powerctl wake
@@ -260,11 +260,23 @@ Acquire a lease:
 powerctl lease acquire 300
 ```
 
+Durations without a suffix are interpreted as seconds. The CLI also accepts
+hours (`h`), minutes (`m`), and seconds (`s`), including ordered combinations:
+
+```bash
+powerctl lease acquire 8h
+powerctl lease acquire 30m
+powerctl lease acquire 3h30m
+powerctl lease acquire 1h15m30s
+```
+
 Renew:
 
 ```bash
 powerctl lease renew <lease-id> 300
 ```
+
+The same duration forms are accepted when renewing a lease.
 
 Release:
 
