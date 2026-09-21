@@ -61,6 +61,8 @@ class LifecycleController:
         self._reconciliation_baseline = self.monotonic()
         self._activity_baseline = self._reconciliation_baseline
         self._projected_timestamps = {}
+        self._lifecycle_generation = 0
+        self._automatic_suspend_commit_lock = asyncio.Lock()
 
     def status(self):
         return replace(
@@ -89,12 +91,25 @@ class LifecycleController:
         self._status = LifecycleStatus(blockers=(LifecycleBlocker.BROKER_OPERATION,))
 
     async def reconcile(self, clear_leases=True):
+        async with self._automatic_suspend_commit_lock:
+            self._reset_reconciliation(clear_leases)
+
+    def _reset_reconciliation(self, clear_leases):
         if clear_leases:
             self.leases.clear()
         self._reconciliation_baseline = self.monotonic()
         self._activity_baseline = self._reconciliation_baseline
+        self._projected_timestamps.clear()
         self._status = LifecycleStatus()
+        self._lifecycle_generation += 1
         self.signal()
+
+    async def reconcile_resume(self):
+        async with self._automatic_suspend_commit_lock:
+            self._reset_reconciliation(clear_leases=True)
+
+    def _generation_is_current(self, generation):
+        return generation == self._lifecycle_generation
 
     async def _wait(self, seconds):
         self._event.clear()
@@ -115,6 +130,7 @@ class LifecycleController:
         return projected
 
     async def _snapshot(self, owned_reservation=None):
+        generation = self._lifecycle_generation
         self.leases.expire()
         blockers = []
 
@@ -168,7 +184,7 @@ class LifecycleController:
             for timestamp in (latest_activity, local_activity_timestamp)
             if timestamp is not None
         )
-        if activity_timestamps:
+        if activity_timestamps and self._generation_is_current(generation):
             self._activity_baseline = max(
                 self._activity_baseline,
                 *activity_timestamps,
@@ -226,10 +242,13 @@ class LifecycleController:
             wait_seconds = min(wait_seconds, self.config.evaluation_interval_seconds)
         return await self._wait(wait_seconds)
 
-    async def _run_pending_grace(self, candidate):
+    async def _run_pending_grace(self, candidate, generation=None):
+        generation = self._lifecycle_generation if generation is None else generation
         grace_started = self.monotonic()
         grace_deadline = grace_started + self.config.grace_seconds
         while True:
+            if not self._generation_is_current(generation):
+                return None
             self._publish(
                 LifecycleState.PENDING_GRACE,
                 idle_started_monotonic=candidate,
@@ -241,7 +260,11 @@ class LifecycleController:
                 max(0, grace_deadline - self.monotonic()),
             )
             await self._wait(wait_seconds)
+            if not self._generation_is_current(generation):
+                return None
             snapshot = await self._snapshot()
+            if not self._generation_is_current(generation):
+                return None
             substantive_blockers = tuple(
                 blocker
                 for blocker in snapshot.blockers
@@ -260,7 +283,10 @@ class LifecycleController:
 
     async def _run(self):
         while True:
+            generation = self._lifecycle_generation
             snapshot = await self._snapshot()
+            if not self._generation_is_current(generation):
+                continue
             candidate = self._candidate(snapshot)
 
             if snapshot.blockers:
@@ -274,6 +300,8 @@ class LifecycleController:
                 if interrupted:
                     continue
                 snapshot = await self._snapshot()
+                if not self._generation_is_current(generation):
+                    continue
                 candidate = self._candidate(snapshot)
                 if snapshot.blockers:
                     self._publish(
@@ -295,43 +323,47 @@ class LifecycleController:
                 await self._wait_until_candidate_deadline(snapshot, candidate)
                 continue
 
-            reservation_deadline = await self._run_pending_grace(candidate)
+            reservation_deadline = await self._run_pending_grace(candidate, generation)
             if reservation_deadline is None:
                 continue
 
-            reservation = self.runtime.reserve_automatic_suspend()
-            if reservation is None:
-                self._publish(
-                    LifecycleState.ACTIVE,
-                    (LifecycleBlocker.BROKER_OPERATION,),
-                )
-                continue
-
-            try:
-                self._publish(
-                    LifecycleState.SUSPEND_REQUESTED,
-                    idle_started_monotonic=candidate,
-                )
-                final_snapshot = await self._snapshot(reservation)
-                if final_snapshot:
-                    self._publish(LifecycleState.ACTIVE, final_snapshot.blockers)
+            async with self._automatic_suspend_commit_lock:
+                if not self._generation_is_current(generation):
                     continue
-                result, _ = await self.runtime.suspend_reserved(
-                    reservation,
-                    SuspendOrigin.AUTOMATIC,
-                )
-                self._publish(
-                    LifecycleState.ACTIVE,
-                    result=AutomaticSuspendResult(result.outcome, self.utc()),
-                )
-            except Exception:
-                self._publish(
-                    LifecycleState.ACTIVE,
-                    (LifecycleBlocker.SUSPEND_FAILED,),
-                    result=AutomaticSuspendResult(
-                        SuspendOutcome.OPERATIONAL_FAILURE,
-                        self.utc(),
-                    ),
-                )
-            finally:
-                self.runtime.release_automatic_suspend(reservation)
+                reservation = self.runtime.reserve_automatic_suspend()
+                if reservation is None:
+                    self._publish(
+                        LifecycleState.ACTIVE,
+                        (LifecycleBlocker.BROKER_OPERATION,),
+                    )
+                    continue
+                try:
+                    self._publish(
+                        LifecycleState.SUSPEND_REQUESTED,
+                        idle_started_monotonic=candidate,
+                    )
+                    final_snapshot = await self._snapshot(reservation)
+                    if not self._generation_is_current(generation):
+                        continue
+                    if final_snapshot:
+                        self._publish(LifecycleState.ACTIVE, final_snapshot.blockers)
+                        continue
+                    result, _ = await self.runtime.suspend_reserved(
+                        reservation,
+                        SuspendOrigin.AUTOMATIC,
+                    )
+                    self._publish(
+                        LifecycleState.ACTIVE,
+                        result=AutomaticSuspendResult(result.outcome, self.utc()),
+                    )
+                except Exception:
+                    self._publish(
+                        LifecycleState.ACTIVE,
+                        (LifecycleBlocker.SUSPEND_FAILED,),
+                        result=AutomaticSuspendResult(
+                            SuspendOutcome.OPERATIONAL_FAILURE,
+                            self.utc(),
+                        ),
+                    )
+                finally:
+                    self.runtime.release_automatic_suspend(reservation)

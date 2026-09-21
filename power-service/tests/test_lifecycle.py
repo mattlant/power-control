@@ -651,3 +651,32 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         snapshot = await controller._snapshot()
         self.assertFalse(snapshot)
         self.assertEqual(controller._candidate(snapshot), 20)
+
+    async def test_reconcile_resume_resets_timing_generation_projection_and_leases(self):
+        class Clock:
+            now = 10
+
+        clock = Clock()
+        config = AutomaticSuspendConfig(True, 30, 10, 1, 1, 10)
+        store = LeaseStore(lambda: clock.now, lambda: datetime.now(timezone.utc), 30)
+        controller = LifecycleController(
+            store,
+            ConfiguredLocalActivityMonitor(()),
+            Collector(ready_status()),
+            Runtime(),
+            config,
+            lambda: clock.now,
+            lambda: datetime(2026, 9, 9, tzinfo=timezone.utc) + timedelta(seconds=clock.now),
+        )
+        store.acquire("principal-one", 20)
+        controller._publish(LifecycleState.IDLE_TIMING, idle_started_monotonic=0, next_transition_monotonic=5)
+        old_generation = controller._lifecycle_generation
+        clock.now = 100
+
+        await controller.reconcile_resume()
+
+        self.assertEqual(controller._lifecycle_generation, old_generation + 1)
+        self.assertEqual(controller._reconciliation_baseline, 100)
+        self.assertEqual(controller._activity_baseline, 100)
+        self.assertEqual(controller._projected_timestamps, {})
+        self.assertEqual(controller.status().leases.active_count, 0)

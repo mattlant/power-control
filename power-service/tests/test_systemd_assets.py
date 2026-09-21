@@ -3,6 +3,21 @@ from pathlib import Path
 
 
 class DeploymentAssetContractTests(unittest.TestCase):
+    def test_resume_hook_targets_broker_main_process_with_sigusr1(self):
+        hook = (Path(__file__).parents[1] / "systemd" / "power-service-reconcile").read_text()
+        self.assertIn(
+            "/bin/systemctl kill --kill-whom=main -s SIGUSR1 power-service-broker.service",
+            hook,
+        )
+        self.assertNotIn("systemctl reload power-service-broker.service", hook)
+
+    def test_resume_documentation_matches_hook_control(self):
+        guide = (Path(__file__).parents[2] / "docs" / "manual-installation-deployment-guide.md").read_text()
+        self.assertIn(
+            "/bin/systemctl kill --kill-whom=main -s SIGUSR1 power-service-broker.service",
+            guide,
+        )
+
     def test_broker_creates_its_runtime_directory_before_hardening(self):
         unit = (Path(__file__).parents[1] / "systemd" / "power-service-broker.service").read_text()
         self.assertIn("RuntimeDirectory=power-service", unit)

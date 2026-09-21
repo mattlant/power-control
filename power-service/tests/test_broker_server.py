@@ -9,6 +9,14 @@ from power_service.models import *
 class Collector:
  async def collect(self):raise AssertionError('collector must not be called')
 class BrokerTests(unittest.IsolatedAsyncioTestCase):
+ async def test_resume_reconcile_delegates_directly_to_lifecycle(self):
+  class Lifecycle:
+   def __init__(self):self.calls=0
+   async def reconcile_resume(self):self.calls+=1
+  runtime=BrokerRuntime.__new__(BrokerRuntime);runtime.lifecycle=Lifecycle()
+  await runtime.reconcile_resume()
+  self.assertEqual(runtime.lifecycle.calls,1)
+
  async def test_interactive_reader_construction_preserves_disabled_no_op_and_injection(self):
   enabled=AutomaticSuspendConfig(True,30,10,1,1,10,interactive_sessions_enabled=True,interactive_activity_timeout_seconds=10)
   disabled=AutomaticSuspendConfig(True,30,10,1,1,10)

@@ -119,6 +119,9 @@ class BrokerRuntime:
     async def reconcile_lifecycle(self):
         await self.lifecycle.reconcile()
 
+    async def reconcile_resume(self):
+        await self.lifecycle.reconcile_resume()
+
     def reserve_automatic_suspend(self):
         return self.gate.try_acquire_suspend()
 

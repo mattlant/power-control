@@ -758,7 +758,7 @@ Current hook:
 #!/bin/sh
 
 if [ "$1" = "post" ] && [ "$2" = "suspend" ]; then
-    exec /bin/systemctl reload power-service-broker.service
+    exec /bin/systemctl kill --kill-whom=main -s SIGUSR1 power-service-broker.service
 fi
 
 exit 0

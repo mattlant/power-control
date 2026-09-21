@@ -9,12 +9,16 @@ from .host_status import CpuFreqReader, HostStatusCollector, LogindReader, Nvidi
 
 
 def install_signal_handlers(loop, server, stop_event):
-    """Route SIGHUP to the broker's locked reload path, not process exit."""
+    """Route lifecycle control signals without blocking the signal callback."""
 
     def reload_configuration():
         asyncio.create_task(server.runtime.reload())
 
+    def reconcile_resume():
+        asyncio.create_task(server.runtime.reconcile_resume())
+
     loop.add_signal_handler(signal.SIGHUP, reload_configuration)
+    loop.add_signal_handler(signal.SIGUSR1, reconcile_resume)
     loop.add_signal_handler(signal.SIGTERM, stop_event.set)
     loop.add_signal_handler(signal.SIGINT, stop_event.set)
 
@@ -36,7 +40,7 @@ async def run(path):
     try:
         await stop_event.wait()
     finally:
-        for signum in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT):
+        for signum in (signal.SIGHUP, signal.SIGUSR1, signal.SIGTERM, signal.SIGINT):
             loop.remove_signal_handler(signum)
         await server.close()
 
