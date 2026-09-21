@@ -1,12 +1,13 @@
 import asyncio
 import unittest
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from power_service.broker_server import BrokerOperationGate
 from power_service.lifecycle import EligibilitySnapshot, LifecycleController
 from power_service.leases import LeaseStore
 from power_service.local_activity import ConfiguredLocalActivityMonitor
-from power_service.models import AutomaticSuspendConfig, Availability, ComponentStatus, InteractiveSessionSnapshot, LifecycleBlocker, LifecycleState, ServiceState, ServiceStatus, OperationalErrorCode
+from power_service.models import AutomaticSuspendConfig, Availability, ComponentStatus, InteractiveSessionSnapshot, LifecycleBlocker, LifecycleState, ServiceState, ServiceStatus, OperationalErrorCode, SuspendOrigin, SuspendOutcome
 from tests.helpers import ready_status
 
 
@@ -680,3 +681,171 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(controller._activity_baseline, 100)
         self.assertEqual(controller._projected_timestamps, {})
         self.assertEqual(controller.status().leases.active_count, 0)
+
+    async def test_reconcile_invalidates_generation_and_projected_timestamps(self):
+        clock = [10]
+        controller = LifecycleController(
+            LeaseStore(lambda: clock[0], lambda: datetime.now(timezone.utc), 30),
+            ConfiguredLocalActivityMonitor(()),
+            Collector(ready_status()),
+            Runtime(),
+            AutomaticSuspendConfig(True, 30, 10, 1, 1, 10),
+            lambda: clock[0],
+            lambda: datetime(2026, 9, 9, tzinfo=timezone.utc) + timedelta(seconds=clock[0]),
+        )
+        controller._project_monotonic(0)
+        old_generation = controller._lifecycle_generation
+        clock[0] = 25
+
+        await controller.reconcile(clear_leases=False)
+
+        self.assertEqual(controller._lifecycle_generation, old_generation + 1)
+        self.assertEqual(controller._reconciliation_baseline, 25)
+        self.assertEqual(controller._projected_timestamps, {})
+
+    async def test_resume_first_evaluation_publishes_fresh_idle_timing_without_activity(self):
+        class StopLifecycle(Exception):
+            pass
+
+        clock = [100]
+        controller = LifecycleController(
+            LeaseStore(lambda: clock[0], lambda: datetime.now(timezone.utc), 30),
+            ConfiguredLocalActivityMonitor(()),
+            Collector(ready_status()),
+            Runtime(),
+            AutomaticSuspendConfig(True, 30, 10, 1, 1, 10),
+            lambda: clock[0],
+            lambda: datetime(2026, 9, 9, tzinfo=timezone.utc) + timedelta(seconds=clock[0]),
+        )
+        await controller.reconcile_resume()
+        publish = controller._publish
+
+        def stop_after_publish(*args, **kwargs):
+            publish(*args, **kwargs)
+            raise StopLifecycle()
+
+        controller._publish = stop_after_publish
+        with self.assertRaises(StopLifecycle):
+            await controller._run()
+
+        status = controller.status()
+        self.assertEqual(status.state, LifecycleState.IDLE_TIMING)
+        self.assertEqual(status.idle_started_at, datetime(2026, 9, 9, 0, 1, 40, tzinfo=timezone.utc))
+        self.assertEqual(status.next_transition_at, datetime(2026, 9, 9, 0, 1, 50, tzinfo=timezone.utc))
+        self.assertEqual(controller._activity_baseline, 100)
+
+    async def test_stale_pending_grace_is_discarded_after_resume_reset(self):
+        class Clock:
+            now = 0
+
+        controller = LifecycleController(
+            LeaseStore(lambda: Clock.now, lambda: datetime.now(timezone.utc), 30),
+            ConfiguredLocalActivityMonitor(()),
+            Collector(ready_status()),
+            Runtime(),
+            AutomaticSuspendConfig(True, 30, 10, 1, 1, 10),
+            lambda: Clock.now,
+            lambda: datetime.now(timezone.utc),
+        )
+        waiting = asyncio.Event()
+        release = asyncio.Event()
+        published = []
+
+        async def wait(_seconds):
+            waiting.set()
+            await release.wait()
+            return False
+
+        def publish(*args, **kwargs):
+            published.append(args[0])
+
+        controller._wait = wait
+        controller._publish = publish
+        generation = controller._lifecycle_generation
+        task = asyncio.create_task(controller._run_pending_grace(0, generation))
+        await waiting.wait()
+        await controller.reconcile_resume()
+        release.set()
+
+        self.assertIsNone(await task)
+        self.assertEqual(published, [LifecycleState.PENDING_GRACE])
+
+    async def test_stale_snapshot_does_not_advance_activity_baseline(self):
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        class BlockingCollector:
+            async def collect(self):
+                started.set()
+                await release.wait()
+                return ready_status()
+
+        clock = [100]
+        reader = SessionReader(InteractiveSessionSnapshot(90, 1))
+        controller = LifecycleController(
+            LeaseStore(lambda: clock[0], lambda: datetime.now(timezone.utc), 30),
+            ConfiguredLocalActivityMonitor(()),
+            BlockingCollector(),
+            Runtime(),
+            AutomaticSuspendConfig(True, 30, 10, 1, 1, 10, interactive_sessions_enabled=True,
+                                   interactive_activity_timeout_seconds=1),
+            lambda: clock[0],
+            lambda: datetime.now(timezone.utc),
+            reader,
+        )
+        task = asyncio.create_task(controller._snapshot())
+        await started.wait()
+        await controller.reconcile_resume()
+        release.set()
+        await task
+
+        self.assertEqual(controller._activity_baseline, 100)
+
+    async def test_resume_waits_for_inflight_suspend_commit_and_releases_reservation(self):
+        class RuntimeWithSuspend(Runtime):
+            def __init__(self):
+                super().__init__()
+                self.reservation = object()
+                self.commit_started = asyncio.Event()
+                self.release_commit = asyncio.Event()
+                self.released = []
+
+            def reserve_automatic_suspend(self):
+                return self.reservation
+
+            async def suspend_reserved(self, _reservation, _origin):
+                self.commit_started.set()
+                await self.release_commit.wait()
+                return SimpleNamespace(outcome=SuspendOutcome.ACCEPTED), None
+
+            def release_automatic_suspend(self, reservation):
+                self.released.append(reservation)
+
+        runtime = RuntimeWithSuspend()
+        controller = LifecycleController(
+            LeaseStore(lambda: 0, lambda: datetime.now(timezone.utc), 30),
+            ConfiguredLocalActivityMonitor(()),
+            Collector(ready_status()),
+            runtime,
+            AutomaticSuspendConfig(True, 30, 10, 1, 1, 10),
+            lambda: 0,
+            lambda: datetime.now(timezone.utc),
+        )
+        async def automatic_suspend_commit():
+            async with controller._automatic_suspend_commit_lock:
+                reservation = runtime.reserve_automatic_suspend()
+                try:
+                    await runtime.suspend_reserved(reservation, SuspendOrigin.AUTOMATIC)
+                finally:
+                    runtime.release_automatic_suspend(reservation)
+
+        task = asyncio.create_task(automatic_suspend_commit())
+        await asyncio.wait_for(runtime.commit_started.wait(), 1)
+        reset_task = asyncio.create_task(controller.reconcile_resume())
+        await asyncio.sleep(0)
+        self.assertFalse(reset_task.done())
+        runtime.release_commit.set()
+        await asyncio.wait_for(task, 1)
+        await asyncio.wait_for(reset_task, 1)
+
+        self.assertEqual(runtime.released, [runtime.reservation])
